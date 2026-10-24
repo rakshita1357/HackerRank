@@ -24,8 +24,8 @@ def load_env(paths: List[str] | None = None) -> List[str]:
                     line = line[7:].lstrip()
                 k, v = line.split('=', 1)
                 k, v = k.strip(), v.strip()
-                if len(v) >= 2 and v[0] == v[-1] and v[0] in '"\'':
-                    v = v[1:-1]
+                if v[:1] in ('"', "'") and v.find(v[0], 1) > 0:
+                    v = v[1:v.find(v[0], 1)]          # quoted value; anything after the closing quote is a comment
                 elif ' #' in v:
                     v = v.split(' #', 1)[0].strip()
                 if k and v and k not in os.environ:
