@@ -17,6 +17,7 @@ from .logparse import parse_log
 from .model import Coverage, Obs, PREFIX_INFO, rid_prefix, rid_system
 
 EMAIL_RE = re.compile(r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}')
+_HEX64_IN = re.compile(r'\b[0-9a-fA-F]{64}\b')
 
 # JSON field aliases -> canonical identifier slot
 _ALIASES = {
@@ -77,8 +78,18 @@ def obs_from_record(file_id: str, ots: str, fmt: str, rec: Dict[str, Any],
     if isinstance(rec.get('document'), dict):            # search docs
         flat.update(rec['document'])
     system = rid_system(rid) or ''
+    ids = _ids_from(flat)
+    for k in ('message_text', 'message_excerpt'):          # identifiers quoted inside free text still identify the record
+        txt = flat.get(k)
+        if isinstance(txt, str) and txt:
+            m = EMAIL_RE.search(txt)
+            if m:
+                ids.setdefault('email', m.group(0))
+            h = _HEX64_IN.search(txt)
+            if h:
+                ids.setdefault('hash', h.group(0).lower())
     return Obs(file_id=file_id, rid=rid, system=system, ots=ots, fmt=fmt, result='FOUND',
-               ids=_ids_from(flat), attrs=_attrs_from({**rec, **flat}), topology=topology)
+               ids=ids, attrs=_attrs_from({**rec, **flat}), topology=topology)
 
 
 # --------------------------------------------------------------------- SQL
@@ -322,7 +333,17 @@ def _trace_event_obs(file_id: str, r: Dict[str, str], key: str) -> Optional[Obs]
         return None
     ts = r['ts']
     ids = {}
-    for slot, names in (('email', ('email', 'customer_email', 'requester_email', 'owner_email', 'matched_value')),
+    mv = _nz(r.get('matched_value'))
+    if mv:                                   # a scan hit: classify the matched value by its shape
+        if '@' in mv:
+            ids['email'] = mv
+        elif _HEX64.match(mv):
+            ids['hash'] = mv.lower()
+        elif re.fullmatch(r'[+()\d\s\-.]{7,}', mv):
+            ids['phone'] = mv
+        else:
+            ids['name'] = mv
+    for slot, names in (('email', ('email', 'customer_email', 'requester_email', 'owner_email')),
                         ('phone', ('phone', 'requester_phone')),
                         ('name', ('requester_name', 'display_name')),
                         ('hash', ('email_hash',)),

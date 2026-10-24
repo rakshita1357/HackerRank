@@ -112,7 +112,7 @@ def derive_state(rid: str, o: Obs, evidence_id: str) -> RState:
 # ----------------------------------------------------------------------------- the world
 
 class World:
-    def __init__(self, dataset_dir: str):
+    def __init__(self, dataset_dir: str, facts_fn=None):
         self.dir = dataset_dir
         self.identity = IdentityIndex(dataset_dir)
         self.obs, self.coverage, self.manifest = extract_all(dataset_dir)
@@ -124,7 +124,7 @@ class World:
         self.coverage_by_system: Dict[str, List[Coverage]] = defaultdict(list)
         for cv in self.coverage:
             self.coverage_by_system[cv.system].append(cv)
-        self.obs += extract_artifacts(dataset_dir, self.manifest, self.activity, set(self.identity._by_email))
+        self.obs += extract_artifacts(dataset_dir, self.manifest, self.activity, set(self.identity._by_email), facts_fn)
         self.by_rid.clear()
         for o in self.obs:
             self.by_rid[o.rid].append(o)
@@ -229,9 +229,10 @@ RESULT_OF_STATUS = {'COMPLETE': 'SUCCESS', 'PARTIALLY_COMPLETE': 'PARTIAL', 'NOT
 
 
 class Auditor:
-    def __init__(self, world: World, llm=None):
+    def __init__(self, world: World, llm=None, llm_audit=None):
         self.w = world
-        self.llm = llm
+        self.llm = llm                # adjudicates requests the rules cannot decide
+        self.llm_audit = llm_audit    # optional second opinion on every request (logged, never overrides rules)
 
     # ---- linking -------------------------------------------------------------------------
     def direct_links(self, case: Case) -> None:
@@ -304,11 +305,18 @@ class Auditor:
                 out.append(x)
         return out
 
-    def run(self, rows: List[Dict[str, str]]) -> List[Case]:
+    def run(self, rows: List[Dict[str, str]], seeds: Optional[Dict[str, Set[str]]] = None) -> List[Case]:
+        """`seeds` maps case_id -> resource ids already known to belong to that (public sample) case."""
         cases: List[Case] = []
+        TIE_LOG.clear()
+        self.ties = TIE_LOG
         for row in rows:
             c = Case(row=row, case_id=row['case_id'])
             c.deletion, c.why = is_deletion_request(row['request_text'], self.llm)
+            if self.llm_audit is not None and c.why != 'llm':
+                second = self.llm_audit(row['request_text'])
+                if second is not None and second != c.deletion:
+                    c.debug.append(f'llm second opinion disagrees (rules={c.deletion}, llm={second})')
             if c.deletion:
                 c.subject = self.w.identity.resolve(row['email'], row['audit_at'])
                 if c.subject is None:
@@ -317,6 +325,8 @@ class Auditor:
         live = [c for c in cases if c.deletion and c.subject]
         for c in live:
             self.direct_links(c)
+            for rid in (seeds or {}).get(c.case_id, ()):
+                c.rids.setdefault(rid, 'sample')
         self.infer_accounts(live)
         self.infer_anonymized_analytics(live)
         for c in cases:
@@ -327,7 +337,7 @@ class Auditor:
         """Unique rids ordered by when the workflow touched them (generation order)."""
         def key(r: str):
             acts = self.w.act_by_rid.get(r, [])
-            return (min((int(x['activity_id'].split('_')[1]) for x in acts), default=10 ** 9), r)
+            return (min((x['event_time'] for x in acts), default='9999'), r)
         return sorted(set(rids), key=key)
 
     def _violations(self, c: Case) -> bool:

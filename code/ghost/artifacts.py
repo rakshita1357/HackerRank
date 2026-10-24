@@ -12,7 +12,7 @@ import re
 import shutil
 import subprocess
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from .model import Obs, rid_prefix, rid_system
 
@@ -67,28 +67,37 @@ def _contains_alias(text: str, aliases: List[str]) -> bool:
     return False
 
 
-def _state_for(prefix: str, text: str) -> Tuple[str, Dict]:
+def _state_for(prefix: str, text: str, facts: Optional[Dict] = None) -> Tuple[str, Dict]:
+    """Heuristic (OCR keywords) state of the main record shown, refined by model-read facts when available."""
+    facts = facts or {}
     low = text.lower()
     attrs: Dict = {}
+    if facts.get('record_present') is False:
+        return 'NOT_FOUND', attrs
     if prefix == 'data_flow':
-        stopped = re.search(r'\b(paused|disabled|stopped|inactive)\b', low)
-        return ('DISABLED' if stopped else 'ACTIVE'), attrs
+        active = facts.get('data_flow_active')
+        if active is None:
+            active = not re.search(r'\b(paused|disabled|stopped|inactive)\b', low)
+        return ('ACTIVE' if active else 'DISABLED'), attrs
     if prefix == 'backup':
-        blocked = re.search(r'restore (blocked|disabled|denied)|deletion[ _-]block', low)
-        return ('BLOCKED' if blocked else 'ACTIVE'), attrs
+        possible = facts.get('restore_possible')
+        if possible is None:
+            possible = not re.search(r'restore (blocked|disabled|denied)|deletion[ _-]block', low)
+        return ('ACTIVE' if possible else 'BLOCKED'), attrs
     if prefix == 'analytics':
-        return 'IDENTIFIABLE', attrs
+        return ('ANONYMIZED' if facts.get('shows_direct_identifiers') is False else 'IDENTIFIABLE'), attrs
     if prefix == 'support':
-        return 'IDENTIFIABLE', attrs
+        return ('REDACTED' if facts.get('shows_direct_identifiers') is False else 'IDENTIFIABLE'), attrs
     if prefix == 'tombstone':
-        return 'REDACTED', attrs
+        return ('IDENTIFIABLE' if facts.get('shows_direct_identifiers') is True else 'REDACTED'), attrs
     if prefix == 'object':
         attrs['attachment'] = True
     return 'FOUND', attrs
 
 
 def extract_artifacts(dataset_dir: str, manifest: Dict[str, Dict[str, str]],
-                      activity: List[Dict[str, str]], identity_emails: Dict[str, set]) -> List[Obs]:
+                      activity: List[Dict[str, str]], identity_emails: Dict[str, set],
+                      facts_fn: Optional[Callable[[str], Optional[Dict]]] = None) -> List[Obs]:
     """Observations from PDFs and screenshots."""
     obs: List[Obs] = []
     files = {}
@@ -116,7 +125,8 @@ def extract_artifacts(dataset_dir: str, manifest: Dict[str, Dict[str, str]],
         if best is None:
             continue
         pfx = rid_prefix(rid)
-        result, attrs = _state_for(pfx, texts[best])
+        facts = facts_fn(files[best][0]) if facts_fn else None
+        result, attrs = _state_for(pfx, texts[best], facts)
         ids: Dict[str, str] = {}
         if users:
             ids['ref'] = users[0]

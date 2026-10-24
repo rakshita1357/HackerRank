@@ -73,3 +73,24 @@ branch=claude/funny-sagan-u87jss
 repo_root=/home/user/HackerRank
 worktree=main
 parent_agent=none
+
+## [2026-10-24T15:35:00Z] Built agent end-to-end: engine, artifacts, LLM layer, evaluation harness, packaging
+
+User Prompt (verbatim, secrets redacted):
+(continuation of the approved build - see previous entry: "Answers: 1. use models where reasoning is required (i will be using gemini) 2. you can install ocr tools 3. yes follow all phases")
+
+Agent Response Summary:
+Completed phases 2-9: evidence extractors, identity resolution, classifier, state/policy engine with activity-window assignment for unidentifiable rows, artifact reader (pdftotext/Tesseract + optional Gemini vision), cached Gemini client with usage ledger, evaluation harness with 5 custom cases and consistency checks, README, packaging script. Sample scores: status 100%, step F1 0.987; custom cases 5/5 exact. Generated output.csv (518 rows) and code.zip.
+
+Actions:
+* Added code/ghost/{artifacts,llm,usage}.py, code/prompts/*.md, code/config.json, code/requirements.txt, code/README.md, code/package.py
+* Added code/evaluation/{main,custom_cases,report}.py; generated evaluation_report.md and usage_report.md
+* Ran python3 code/main.py (output.csv at repo root) and python3 code/package.py
+
+Context:
+tool=Claude Code
+model=claude-sonnet-5-5
+branch=claude/funny-sagan-u87jss
+repo_root=/home/user/HackerRank
+worktree=main
+parent_agent=none
