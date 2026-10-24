@@ -15,7 +15,7 @@ def main() -> None:
         for base, dirs, files in os.walk(HERE):
             dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
             for f in sorted(files):
-                if os.path.splitext(f)[1] in SKIP_EXT or f.startswith('.env'):
+                if os.path.splitext(f)[1] in SKIP_EXT or (f.startswith('.env') and f != '.env.example'):
                     continue
                 p = os.path.join(base, f)
                 z.write(p, os.path.relpath(p, ROOT))

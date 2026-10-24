@@ -12,6 +12,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
+from .envfile import load_env
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 CODE_DIR = os.path.dirname(HERE)
 PROMPT_DIR = os.path.join(CODE_DIR, 'prompts')
@@ -29,6 +31,7 @@ class LLM:
     """Thin, cache-first Gemini client returning parsed JSON."""
 
     def __init__(self, model: Optional[str] = None, cache_dir: str = CACHE_DIR, enabled: bool = True):
+        load_env()                      # picks up GEMINI_API_KEY / GEMINI_MODEL from a local .env file
         self.model = model or os.environ.get('GEMINI_MODEL', DEFAULT_MODEL)
         self.cache_dir = cache_dir
         self.ledger: List[Dict[str, Any]] = []

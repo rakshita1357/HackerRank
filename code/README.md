@@ -12,15 +12,17 @@ sudo apt-get install -y tesseract-ocr poppler-utils   # OCR for screenshots, tex
 pip install -r code/requirements.txt                  # only needed for the optional Gemini layer
 ```
 
-No secrets live in the repository. The optional model layer reads `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) from the
-environment; `GEMINI_MODEL` overrides the model name (default `gemini-2.5-flash`).
+No secrets live in the repository. Copy `.env.example` to `.env` (repo root or `code/`) and fill in your key - the file is
+read automatically, never committed (`.gitignore`) and never packaged. Real environment variables, if set, take priority.
+`GEMINI_API_KEY` (or `GOOGLE_API_KEY`) enables the optional model layer; `GEMINI_MODEL` overrides the model
+(default `gemini-2.5-flash`).
 
 ## Run
 
 ```bash
 python3 code/main.py                      # reads dataset/, writes output.csv (518 rows, sorted) + code/evaluation/usage_report.md
 python3 code/main.py --llm off            # fully deterministic, never calls a model
-GEMINI_API_KEY=... python3 code/main.py --llm on     # adds the Gemini layer (see below)
+python3 code/main.py --llm on             # adds the Gemini layer (key read from .env)
 python3 code/evaluation/main.py           # metrics on the 32 public samples + 5 custom cases, regenerates evaluation_report.md
 python3 code/package.py                   # builds code.zip (no dataset, caches or secrets)
 ```
