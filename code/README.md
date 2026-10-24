@@ -23,7 +23,7 @@ read automatically, never committed (`.gitignore`) and never packaged. Real envi
 python3 code/main.py                      # reads dataset/, writes output.csv (518 rows, sorted) + code/evaluation/usage_report.md
 python3 code/main.py --llm off            # fully deterministic, never calls a model
 python3 code/main.py --llm on             # adds the Gemini layer (key read from .env)
-python3 code/evaluation/main.py           # metrics on the 32 public samples + 5 custom cases, regenerates evaluation_report.md
+python3 code/evaluation/main.py           # metrics on the 32 public samples + 16 custom cases, regenerates evaluation_report.md
 python3 code/package.py                   # builds code.zip (no dataset, caches or secrets)
 ```
 

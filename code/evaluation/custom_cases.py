@@ -224,4 +224,6 @@ COMMIT;
         step(1, V, 'account_service', 'account_9301', 'VERIFY_RECORD_ABSENT', 'ABSENT', 'evidence_c3'),
         step(2, V, 'security_service', 'audit_record_9303', 'VERIFY_RECORD_PRESENT', 'PRESENT', 'evidence_c3'),
         step(3, V, 'identity_service', 'tombstone_9302', 'VERIFY_RECORD_REDACTED', 'REDACTED', 'evidence_c3')])
-    return d, requests, exp
+    import custom_cases_extra
+    xr, xe = custom_cases_extra.extend(d)
+    return d, requests + xr, {**exp, **xe}

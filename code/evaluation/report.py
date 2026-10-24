@@ -46,6 +46,17 @@ CUSTOM_DESC = {
     'custom_3': 'Fully compliant Spanish-language request: account gone (proven by an empty account snapshot), tombstone '
                 'keeps only `user_id`, audit record retained. Only verification steps, all citing the bundle.',
     'custom_4': 'Marketing-newsletter opt-out that explicitly keeps the account -> `NOT_APPLICABLE`, empty steps.',
+    'custom_6': 'Edge: request e-mail upper-cased and padded with spaces; evidence in a different case; search leftover.',
+    'custom_7': 'Edge: only the *previous phone number* (from the audit log) identifies the analytics row.',
+    'custom_8': 'Edge: tombstone still contains name and e-mail (only `user_id` may remain) -> redact.',
+    'custom_9': 'Edge: support attachment owned only by the subject (delete) next to an active legal hold (must stay).',
+    'custom_10': 'Edge: workflow says NOT_STARTED but connector is off, archive is blocked and account is gone -> COMPLETE.',
+    'custom_11': 'Edge: deletion words inside a refusal ("do not delete or close my account") -> NOT_APPLICABLE.',
+    'custom_12': 'Edge: Korean deletion request with a leftover search entry.',
+    'custom_13': 'Edge: record visible in an early snapshot, absent from a later exhaustive snapshot -> removed.',
+    'custom_14': 'Edge: only a look-alike address (`max.ng.jr@`) appears in the evidence -> ignored, COMPLETE.',
+    'custom_15': 'Edge: evidence captured exactly at `audit_at` counts, one second later does not.',
+    'custom_16': 'Edge: only the restore path remains (archive restorable) -> block restore.',
     'custom_5': 'Time-travel trap: a later trace (captured after `audit_at`) shows a search hit; it must be ignored and '
                 'must not be cited.',
 }
@@ -100,7 +111,7 @@ def write(path: str, sm: Dict[str, float], pred, gold, cm: Dict[str, float], per
     A('* **Public samples** - the 32 cases of `dataset/sample_output.csv` are the only labelled data. They are scored with '
       'the pipeline run on samples + evaluation requests together (so competing rows are resolved as in the real run) '
       'but **without** using the sample answers to pre-assign resources, i.e. the labels are held out.')
-    A('* **Custom cases** - five hand-built, fictional cases with their own tiny datasets (`code/evaluation/custom_cases.py`).')
+    A('* **Custom cases** - sixteen hand-built, fictional cases with their own tiny datasets (`code/evaluation/custom_cases.py`).')
     A('* **Consistency checks** on all 550 requests: the evidence-derived states are cross-checked against the (untrusted) '
       'workflow log.')
     A('')
