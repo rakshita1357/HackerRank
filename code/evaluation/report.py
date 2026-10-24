@@ -87,7 +87,7 @@ FAILURES = [
 ]
 
 
-def write(path: str, sm: Dict[str, float], pred, gold, cm: Dict[str, float], per, cons: Dict[str, int]) -> None:
+def write(path: str, sm: Dict[str, float], pred, gold, cm: Dict[str, float], per, cons: Dict[str, int], smoke=None) -> None:
     n = int(sm['cases'])
     lines: List[str] = []
     A = lines.append
@@ -165,6 +165,11 @@ def write(path: str, sm: Dict[str, float], pred, gold, cm: Dict[str, float], per
     A(f"| Compliant support/analytics/backup/flow/tombstone resources checked | {cons['compliant_checked']} |")
     A(f"| ... of which only a worker \"final result\" claim exists (should be 0) | {cons['compliant_with_final_result_claim']} |")
     A('')
+    if smoke:
+        A('The optional Gemini layer is exercised offline with a fake client (cache replay, token ledger, usage report): '
+          + ('**passed**' if smoke.get('ok') else '**FAILED**') + f" - {smoke['live_calls']} live calls, "
+          f"{smoke['cached_entries']} cache replay for {smoke['ledger_entries']} requests.")
+        A('')
     A('## 5. Failures found and improvements made')
     A('')
     for i, (f, imp) in enumerate(FAILURES, 1):

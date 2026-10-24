@@ -119,7 +119,8 @@ def extract_artifacts(dataset_dir: str, manifest: Dict[str, Dict[str, str]],
         best: Optional[str] = None
         for fid, (_, cap, _) in files.items():
             dt = (t - datetime.strptime(cap, FMT)).total_seconds()
-            if 0 <= dt <= 900 and (_contains_rid(texts[fid], rid) or _contains_alias(texts[fid], aliases)):
+            unreadable = not texts[fid].strip()          # no OCR available: fall back to the catalog link + capture time
+            if 0 <= dt <= 900 and (unreadable or _contains_rid(texts[fid], rid) or _contains_alias(texts[fid], aliases)):
                 if best is None or cap > files[best][1]:
                     best = fid
         if best is None:

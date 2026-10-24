@@ -94,3 +94,23 @@ branch=claude/funny-sagan-u87jss
 repo_root=/home/user/HackerRank
 worktree=main
 parent_agent=none
+
+## [2026-10-24T15:50:00Z] Hardening: validator, offline LLM smoke test, regenerated reports and output
+
+User Prompt (verbatim, secrets redacted):
+(same turn as above - no new user message; final polishing of the approved build)
+
+Agent Response Summary:
+Added structural output validation (code/ghost/validate.py, run by main.py), an offline fake-client test for the Gemini layer, OCR-less fallback for artifact linking, determinism checks (identical output across runs/cwd/hash seeds) and regenerated evaluation_report.md, usage_report.md, output.csv and code.zip.
+
+Actions:
+* Edited code/main.py, code/ghost/{artifacts,validate}.py, code/evaluation/{main,report}.py
+* Ran python3 code/evaluation/main.py, python3 code/main.py, python3 code/package.py
+
+Context:
+tool=Claude Code
+model=claude-sonnet-5-5
+branch=claude/funny-sagan-u87jss
+repo_root=/home/user/HackerRank
+worktree=main
+parent_agent=none

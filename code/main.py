@@ -18,6 +18,7 @@ ROOT = os.path.dirname(HERE)
 from ghost.engine import Auditor, World, case_no  # noqa: E402
 from ghost.llm import LLM  # noqa: E402
 from ghost import usage  # noqa: E402
+from ghost.validate import validate  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -65,13 +66,16 @@ def main(argv=None) -> int:
     if args.debug:
         with open(args.debug, 'w', encoding='utf-8') as fh:
             json.dump({c.case_id: {'rids': c.rids, 'debug': c.debug} for c in cases}, fh, indent=1)
+    problems = validate(args.out, [r['case_id'] for r in rows])
+    for p in problems[:20]:
+        print('VALIDATION:', p, file=sys.stderr)
     report = args.usage_report or (os.path.join(HERE, 'evaluation', 'usage_report.md') if args.requests is None else None)
     if report:
         os.makedirs(os.path.dirname(report), exist_ok=True)
         with open(report, 'w', encoding='utf-8') as fh:
             fh.write(usage.render(llm.ledger, len(rows), llm.model, use_llm))
     print(f'wrote {len(cases)} rows to {args.out}' + (f' (LLM calls: {len(llm.ledger)})' if use_llm else ''))
-    return 0
+    return 1 if problems else 0
 
 
 if __name__ == '__main__':

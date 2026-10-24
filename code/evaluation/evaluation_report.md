@@ -68,6 +68,8 @@ The workflow log is a *claim*, but its wording is informative: a truthful policy
 | Compliant support/analytics/backup/flow/tombstone resources checked | 238 |
 | ... of which only a worker "final result" claim exists (should be 0) | 0 |
 
+The optional Gemini layer is exercised offline with a fake client (cache replay, token ledger, usage report): **passed** - 2 live calls, 1 cache replay for 3 requests.
+
 ## 5. Failures found and improvements made
 
 1. **Failure.** Accounts with a 404 / no identifiers and anonymised analytics rows could not be tied to a person through evidence alone (first prototype: 6 of 32 samples missing steps).  

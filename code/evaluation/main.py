@@ -90,6 +90,34 @@ def activity_consistency() -> Dict[str, int]:
     return res
 
 
+def llm_smoke() -> Dict[str, object]:
+    """Exercise the Gemini path (cache, ledger, usage report) with a fake client - no network, no key."""
+    import tempfile
+    from types import SimpleNamespace
+    from ghost.llm import LLM
+    from ghost import usage
+
+    calls = []
+
+    class FakeModels:
+        def generate_content(self, model, contents, config):
+            calls.append(model)
+            text = json.dumps({'deletion_requested': 'delete' in str(contents[0]).lower()})
+            return SimpleNamespace(text=text, usage_metadata=SimpleNamespace(
+                prompt_token_count=120, candidates_token_count=10, thoughts_token_count=0))
+
+    llm = LLM(model='gemini-2.5-flash', cache_dir=tempfile.mkdtemp(prefix='ghost_llm_'), enabled=True)
+    llm.enabled = True
+    llm._client = SimpleNamespace(models=FakeModels())
+    a = llm.classify_request('Please delete my account')
+    b = llm.classify_request('Please delete my account')          # second call must be a cache replay
+    c = llm.classify_request('Send me a copy of my data')
+    md = usage.render(llm.ledger, 3, llm.model, True)
+    return {'verdicts': [a, b, c], 'live_calls': len(calls), 'ledger_entries': len(llm.ledger),
+            'cached_entries': sum(1 for e in llm.ledger if e['cached']), 'report_has_model': 'gemini-2.5-flash' in md,
+            'ok': [a, b, c] == [True, True, False] and len(calls) == 2}
+
+
 def fmt(m: Dict[str, float]) -> str:
     keys = ['status_accuracy', 'step_precision', 'step_recall', 'step_f1', 'sequence_exact', 'sequence_lcs', 'row_exact']
     return ', '.join(f'{k}={m[k]:.3f}' for k in keys)
@@ -103,14 +131,16 @@ def main(argv=None) -> int:
     sm, pred, gold = samples_metrics()
     cm, per = custom_metrics()
     cons = activity_consistency()
+    smoke = llm_smoke()
     print('public samples :', fmt(sm))
     print('custom cases   :', fmt(cm))
     for cid, r in per.items():
         print(f"  {cid}: status_ok={r['status']} steps_exact={r['steps_exact']}")
     print('activity consistency:', cons)
+    print('LLM layer smoke test (fake client):', smoke)
     if not args.no_report:
         import report
-        report.write(os.path.join(HERE, 'evaluation_report.md'), sm, pred, gold, cm, per, cons)
+        report.write(os.path.join(HERE, 'evaluation_report.md'), sm, pred, gold, cm, per, cons, smoke)
         print('wrote', os.path.join(HERE, 'evaluation_report.md'))
     print(f'({time.time() - t0:.1f}s)')
     return 0
