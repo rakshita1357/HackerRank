@@ -7,6 +7,9 @@
 from __future__ import annotations
 
 import hashlib
+import logging
+import sys
+import threading
 import json
 import os
 import time
@@ -20,6 +23,8 @@ PROMPT_DIR = os.path.join(CODE_DIR, 'prompts')
 CACHE_DIR = os.path.join(CODE_DIR, '.cache', 'llm')
 
 DEFAULT_MODEL = 'gemini-2.5-flash'
+logging.getLogger('google_genai').setLevel(logging.ERROR)
+logging.getLogger('google_genai.models').setLevel(logging.ERROR)
 
 
 def load_prompt(name: str) -> str:
@@ -75,8 +80,9 @@ class LLM:
         contents: List[Any] = [user]
         for a in attachments:
             contents.append(types.Part.from_bytes(data=a['bytes'], mime_type=a['mime']))
-        cfg = types.GenerateContentConfig(system_instruction=system, temperature=0.0,
-                                          response_mime_type='application/json')
+        cfg = types.GenerateContentConfig(
+            system_instruction=system, temperature=0.0, response_mime_type='application/json',
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))   # no tools: silences the AFC notice
         last_err: Optional[Exception] = None
         for attempt in range(4):
             try:
@@ -98,6 +104,23 @@ class LLM:
         self.ledger.append({'purpose': purpose, 'model': self.model, 'cached': False, 'error': str(last_err)[:200],
                             'input_tokens': 0, 'output_tokens': 0})
         return None
+
+    def prefetch_classify(self, texts: List[str], workers: int = 6) -> None:
+        """Warm the cache for many request texts in parallel, with a progress line."""
+        from concurrent.futures import ThreadPoolExecutor
+        uniq = sorted(set(texts))
+        done = [0]
+        lock = threading.Lock()
+
+        def one(t: str) -> None:
+            self.classify_request(t)
+            with lock:
+                done[0] += 1
+                if done[0] % 25 == 0 or done[0] == len(uniq):
+                    print(f'  [llm] classified {done[0]}/{len(uniq)} request texts', file=sys.stderr, flush=True)
+
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            list(ex.map(one, uniq))
 
     # ---- tasks -------------------------------------------------------------------------------
     def classify_request(self, text: str) -> Optional[bool]:

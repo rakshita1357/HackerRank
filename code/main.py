@@ -39,6 +39,9 @@ def main(argv=None) -> int:
     llm = LLM(enabled=args.llm != 'off')
     use_llm = llm.enabled and args.llm != 'off'
     world = World(args.dataset, llm.artifact_facts if use_llm else None)
+    if use_llm:
+        print(f'Gemini enabled ({llm.model}); classifying {len(rows)} requests (cached after the first run)...', file=sys.stderr, flush=True)
+        llm.prefetch_classify([r['request_text'] for r in rows])
     # The 32 public sample cases compete for the same activity rows as the evaluation cases, so they are
     # processed together (and their published answers tell us which resources they already own).
     wanted = {r['case_id'] for r in rows}
