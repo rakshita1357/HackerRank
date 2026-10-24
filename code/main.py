@@ -22,6 +22,7 @@ from ghost.validate import validate  # noqa: E402
 
 
 def main(argv=None) -> int:
+    ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # repo root (folder that holds code/ and dataset/)
     ap = argparse.ArgumentParser()
     ap.add_argument('--dataset', default=os.path.join(ROOT, 'dataset'))
     ap.add_argument('--requests', default=None, help='requests CSV (default: dataset/deletion_requests.csv)')
