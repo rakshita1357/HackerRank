@@ -31,14 +31,14 @@ def extract_text(path: str) -> str:
     ext = os.path.splitext(path)[1].lower()
     try:
         if ext == '.pdf' and shutil.which('pdftotext'):
-            text = subprocess.run(['pdftotext', '-layout', path, '-'], capture_output=True, text=True, timeout=60).stdout
+            text = subprocess.run(['pdftotext', '-layout', path, '-'], capture_output=True, timeout=60).stdout.decode('utf-8', 'replace')
         elif ext in ('.png', '.jpg', '.jpeg') and shutil.which('tesseract'):
             outs = []
             for psm in ('11', '6'):
                 outs.append(subprocess.run(['tesseract', path, '-', '--psm', psm], capture_output=True,
-                                           text=True, timeout=120).stdout)
+                                           timeout=120).stdout.decode('utf-8', 'replace'))
             text = '\n'.join(outs)
-    except (OSError, subprocess.SubprocessError):
+    except Exception:                      # missing/broken OCR tools must never stop the run
         text = ''
     _CACHE[path] = text
     return text

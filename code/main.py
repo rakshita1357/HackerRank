@@ -33,6 +33,9 @@ def main(argv=None) -> int:
                     help='Gemini layer: auto = use it when GEMINI_API_KEY is set (default), off = fully deterministic')
     ap.add_argument('--usage-report', default=None, help='where to write the usage report (default: code/evaluation/usage_report.md for full runs)')
     args = ap.parse_args(argv)
+    if not os.path.isdir(args.dataset):
+        print(f'ERROR: dataset folder not found: {args.dataset}\n  Put the dataset next to code/ (repo root/dataset) or pass --dataset PATH', file=sys.stderr)
+        return 2
     req = args.requests or os.path.join(args.dataset, 'deletion_requests.csv')
     with open(req, encoding='utf-8', newline='') as fh:
         rows = list(csv.DictReader(fh))
@@ -82,4 +85,12 @@ def main(argv=None) -> int:
 
 
 if __name__ == '__main__':
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        import platform, traceback
+        traceback.print_exc()
+        print(f'\n--- send this block when reporting a problem ---\npython {platform.python_version()} on {platform.platform()}\ncwd={os.getcwd()}\nfile={os.path.abspath(__file__)}', file=sys.stderr)
+        raise SystemExit(1)
