@@ -48,3 +48,28 @@ branch=claude/funny-sagan-u87jss
 repo_root=/home/user/HackerRank
 worktree=main
 parent_agent=none
+
+## [2026-10-24T15:10:00Z] Roadmap approved; started building (phases 0-7 prototype)
+
+User Prompt (verbatim, secrets redacted):
+Answers:
+
+1. use models where reasoning is required (i will be using gemini)
+2. you can install ocr tools
+3. yes follow all phases
+
+Agent Response Summary:
+Installed tesseract/pytesseract, then profiled evidence formats and reverse-engineered the 32 sample answers. Built code/ghost (log/SQL/JSON/txt extractors, identity resolver, request classifier, state/policy engine, plan builder, scorer) and code/main.py. First prototype scores 96.9% status accuracy and 0.96 step F1 on the samples; remaining gaps are PDF/PNG-derived records, account-absence citations, and unavoidable random ties between interchangeable activity rows.
+
+Actions:
+* apt-get install tesseract-ocr; pip install pytesseract google-genai
+* Created code/ghost/{logparse,model,evidence,identity,classify,engine,scoring}.py and code/main.py
+* Ran the pipeline on samples and on all 518 requests (scratch outputs only)
+
+Context:
+tool=Claude Code
+model=claude-sonnet-5-5
+branch=claude/funny-sagan-u87jss
+repo_root=/home/user/HackerRank
+worktree=main
+parent_agent=none
