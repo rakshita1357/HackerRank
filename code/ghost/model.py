@@ -63,3 +63,5 @@ class Coverage:
     system: str
     ts: str
     topology: str = 'primary'
+    nonempty: bool = True
+    scope: bool = True      # False: the file lists some records of the system but does not claim to be exhaustive

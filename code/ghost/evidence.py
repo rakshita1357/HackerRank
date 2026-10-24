@@ -56,8 +56,16 @@ _ATTR_KEYS = ('account_status', 'enabled', 'restore_allowed', 'retention_until',
               'ticket_id', 'order_reference', 'retention_reason', 'channel', 'mode')
 
 
+_BOOL_KEYS = ('enabled', 'restore_allowed', 'download_available')
+
+
 def _attrs_from(rec: Dict[str, Any]) -> Dict[str, Any]:
-    return {k: rec[k] for k in _ATTR_KEYS if k in rec}
+    out = {k: rec[k] for k in _ATTR_KEYS if k in rec}
+    for k in _BOOL_KEYS:
+        if k in out and out[k] is not None:
+            v = out[k]
+            out[k] = (v.strip().lower() in ('1', 'true', 'yes')) if isinstance(v, str) else bool(v)
+    return out
 
 
 def obs_from_record(file_id: str, ots: str, fmt: str, rec: Dict[str, Any],
@@ -110,8 +118,12 @@ def extract_sql(path: str, file_id: str, captured: str) -> Tuple[List[Obs], List
     cov: List[Coverage] = []
     if 'snapshot_scope' in tables:                       # inventory family
         ts = captured
+        counts = {}
+        for t in tables:
+            if t in _INVENTORY_TABLES:
+                counts[_INVENTORY_TABLES[t]] = con.execute(f'select count(*) from {t}').fetchone()[0]
         for r in con.execute('select * from snapshot_scope'):
-            cov.append(Coverage(file_id, r['origin_system'], r['captured_at']))
+            cov.append(Coverage(file_id, r['origin_system'], r['captured_at'], nonempty=counts.get(r['origin_system'], 0) > 0))
         for t in tables:
             if t not in _INVENTORY_TABLES:
                 continue
@@ -136,12 +148,19 @@ def extract_sql(path: str, file_id: str, captured: str) -> Tuple[List[Obs], List
                     o.system = r['origin_system'] or o.system
                     obs.append(o)
                     systems.add(o.system)
+            for sname in sorted(systems):
+                cov.append(Coverage(file_id, sname, ts, topo))
         else:                                            # account / search specific tables
+            n = 0
             for r in con.execute(f'select * from {t}'):
                 rec = dict(r)
                 o = obs_from_record(file_id, ts, 'sql_replica', rec, topo)
                 if o:
                     obs.append(o)
+                    n += 1
+            sysname = 'account_service' if 'profile' in t else ('search_service' if 'search' in t else '')
+            if sysname:
+                cov.append(Coverage(file_id, sysname, ts, topo, nonempty=n > 0))
     return obs, cov
 
 
@@ -182,7 +201,7 @@ def extract_json(path: str, file_id: str, captured: str) -> Tuple[List[Obs], Lis
                 for r in s['records']:
                     obs.append(_history_obs(file_id, r, 'json_history'))
                 continue
-            cov.append(Coverage(file_id, s['data_store'], ts))
+            cov.append(Coverage(file_id, s['data_store'], ts, nonempty=bool(s['records']), scope=not s['records']))
             for r in s['records']:
                 o = obs_from_record(file_id, ts, 'json_bundle:' + s['collection'], r)
                 if o:
@@ -361,9 +380,11 @@ def _trace_event_obs(file_id: str, r: Dict[str, str], key: str) -> Optional[Obs]
         attrs['direct_identifiers'] = r.get('direct_identifiers', '')
     elif ev == 'contact_query_completed':
         result = 'FOUND' if r.get('rows', '0') != '0' else 'NOT_FOUND'
+        attrs['support_record'] = True          # row in a support replica / contact index, not a message body
     elif ev == 'deletion_marker_check':
         result = 'FOUND'
         attrs['marker_found'] = r.get('marker_found', '')
+        attrs['support_record'] = True
     else:
         return None
     if 'enabled' in r and 'enabled' not in attrs:

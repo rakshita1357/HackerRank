@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from .classify import is_deletion_request
+from .artifacts import extract_artifacts
 from .evidence import extract_all
 from .identity import IdentityIndex, Subject, norm_email
 from .model import Coverage, Obs, PREFIX_INFO, rid_prefix, rid_system
@@ -66,7 +67,8 @@ def derive_state(rid: str, o: Obs, evidence_id: str) -> RState:
             present = present and avail is not False
         return mk('ABSENT', 'REMAINING' if present else None, res)
     if px == 'support':
-        is_att = bool(a.get('attachment')) or a.get('record_type') == 'SUPPORT_ATTACHMENT' or ev == 'attachment_pii_scan'
+        is_att = (bool(a.get('attachment')) or bool(a.get('support_record'))
+                  or a.get('record_type') == 'SUPPORT_ATTACHMENT' or ev == 'attachment_pii_scan')
         if is_att:
             return mk('ABSENT', 'REMAINING' if res in PRESENT_RESULTS else None, res, 'attachment')
         if res == 'NOT_FOUND':
@@ -119,6 +121,13 @@ class World:
             self.by_rid[o.rid].append(o)
         with open(os.path.join(dataset_dir, 'system_activity.csv'), encoding='utf-8') as fh:
             self.activity = list(csv.DictReader(fh))
+        self.coverage_by_system: Dict[str, List[Coverage]] = defaultdict(list)
+        for cv in self.coverage:
+            self.coverage_by_system[cv.system].append(cv)
+        self.obs += extract_artifacts(dataset_dir, self.manifest, self.activity, set(self.identity._by_email))
+        self.by_rid.clear()
+        for o in self.obs:
+            self.by_rid[o.rid].append(o)
         self.act_by_rid: Dict[str, List[Dict[str, str]]] = defaultdict(list)
         for x in self.activity:
             self.act_by_rid[x['resource_id']].append(x)
@@ -236,6 +245,28 @@ class Auditor:
             if how:
                 case.rids.setdefault(o.rid, how)
 
+    def _omissions(self, rid: str, hi: str, files: Set[str]) -> List[Coverage]:
+        """Citable snapshots that enumerate the resource's system and do not list the resource."""
+        system = rid_system(rid)
+        if not system:
+            return []
+        out = []
+        for cv in self.w.coverage_by_system.get(system, ()):
+            if cv.file_id not in files or not cv.scope or cv.ts > hi or self.w.manifest[cv.file_id]['captured_at'] > hi:
+                continue
+            if any(o.file_id == cv.file_id for o in self.w.by_rid.get(rid, [])):
+                continue
+            out.append(cv)
+        return out
+
+    def _case_files(self, case: Case) -> Set[str]:
+        """Files that carry at least one observation directly tied to the subject (the case's own batch)."""
+        hi = case.row['audit_at']
+        if not hasattr(case, '_files'):
+            case._files = {o.file_id for rid, how in case.rids.items() if how != 'activity'
+                           for o in self.w.by_rid.get(rid, []) if o.ots <= hi and case.subject.matches(o.ids)}
+        return case._files
+
     def state_of(self, case: Case, rid: str) -> Optional[RState]:
         hi = case.row['audit_at']
         cands = [o for o in self.w.by_rid.get(rid, []) if o.ots <= hi]
@@ -244,13 +275,22 @@ class Auditor:
         cit = [o for o in cands if self.w.citable(o, hi)]
         pool = cit or cands
         latest = max(o.ots for o in pool)
+        # a later exhaustive snapshot that no longer lists the record proves it was removed
         top = [o for o in pool if o.ots == latest]
         # among simultaneous observations (primary + replicas / several events) a violation wins
         sts = []
         for o in top:
             sts.append((derive_state(rid, o, o.file_id if self.w.citable(o, hi) else ''), o))
         sts.sort(key=lambda x: (x[0].violation is None, x[0].evidence_id))
-        return sts[0][0]
+        best = sts[0][0]
+        if best.violation:
+            # a later exhaustive snapshot of the case's own batch that no longer lists the record proves removal
+            later = [cv for cv in self._omissions(rid, hi, self._case_files(case)) if cv.ts > latest]
+            if later:
+                cv = max(later, key=lambda c: (c.ts, c.file_id))
+                gone = Obs(cv.file_id, rid, rid_system(rid) or '', cv.ts, 'omission', 'NOT_FOUND')
+                return derive_state(rid, gone, cv.file_id)
+        return best
 
     # ---- null-identity inference (accounts / anonymized analytics) -------------------------------
     def candidate_activity(self, case: Case, system: str, ev_types: Tuple[str, ...], before_h=3, after_h=1):
@@ -337,8 +377,6 @@ class Auditor:
             px = {rid_prefix(r) for r in c.rids}
             if 'analytics' in px or 'tombstone' in px or self._violations(c):
                 continue
-            if 'audit_record' not in px:
-                continue
             rids = []
             for x in self.candidate_activity(c, 'analytics_platform', ('ANONYMIZE_RECORD',), 3, 1):
                 r = x['resource_id']
@@ -370,7 +408,23 @@ class Auditor:
                 else:
                     continue
             c.states[rid] = st
+        self._absence_by_coverage(c)
         c.status, c.steps = build_steps(c.states.values(), True)
+
+    def _absence_by_coverage(self, c: Case) -> None:
+        """An account with no observation is proven absent by a snapshot that lists accounts without it."""
+        hi, lo = c.row['audit_at'], c.row['requested_at']
+        used = {st.evidence_id for st in c.states.values() if st.evidence_id}
+        for rid, st in c.states.items():
+            if st.prefix != 'account' or st.evidence_id or st.violation:
+                continue
+            cands = [cv for cv in self.w.coverage
+                     if cv.system == 'account_service' and cv.ts <= hi and cv.ts >= lo
+                     and self.w.manifest[cv.file_id]['captured_at'] <= hi]
+            own = [cv for cv in cands if cv.file_id in used]
+            pool = own or [cv for cv in cands if cv.nonempty]
+            if pool:
+                st.evidence_id = max(pool, key=lambda cv: (cv.ts, cv.file_id)).file_id
 
 
 TIE_LOG: List[Any] = []
