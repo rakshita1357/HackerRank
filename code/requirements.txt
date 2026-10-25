@@ -1,0 +1,3 @@
+# Core pipeline: Python 3.10+ standard library only (sqlite3, csv, json, re, subprocess).
+# Optional Gemini layer (request second opinion + screenshot reading):
+google-genai>=1.0
