@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import logging
 import sys
 import threading
@@ -44,6 +45,8 @@ class LLM:
         self.ledger: List[Dict[str, Any]] = []
         self._lock = threading.RLock()
         self.disabled_reason = ''
+        self.live_calls = 0
+        self.max_calls = int(os.environ.get('GEMINI_MAX_CALLS', '0') or 0)   # 0 = unlimited
         self._client = None
         key = os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
         self.enabled = bool(enabled and key)
@@ -80,6 +83,10 @@ class LLM:
             return hit.get('result')
         if not self.enabled:
             return None
+        if self.max_calls and self.live_calls >= self.max_calls:
+            self._disable(f'call budget of {self.max_calls} reached (GEMINI_MAX_CALLS)')
+            return None
+        self.live_calls += 1
         from google.genai import types
         contents: List[Any] = [user]
         for a in attachments:
@@ -108,14 +115,29 @@ class LLM:
                 code = getattr(e, 'code', None) or getattr(e, 'status_code', None)
                 if code == 404 and self._next_model():          # model retired / unavailable: switch and retry at once
                     continue
+                if code == 429 and self._daily_quota(e):        # free-tier daily cap is per model: try another, else stop
+                    if self._next_model():
+                        continue
+                    self._disable('daily quota exhausted on every fallback model')
+                    break
                 if code in (400, 401, 403, 404):                # permanent: bad key, bad model, no access
                     self._disable(f'{code} {str(e)[:160]}')
                     break
-                attempt += 1                                    # 429 / 5xx / malformed JSON: back off and retry
-                time.sleep(min(2 ** attempt, 20))
+                attempt += 1                                    # per-minute 429 / 5xx / malformed JSON: back off and retry
+                time.sleep(min(self._retry_delay(e, 2 ** attempt), 30))
         self.ledger.append({'purpose': purpose, 'model': self.model, 'cached': False, 'error': str(last_err)[:200],
                             'input_tokens': 0, 'output_tokens': 0})
         return None
+
+    @staticmethod
+    def _daily_quota(e: Exception) -> bool:
+        s = str(e)
+        return 'PerDay' in s or 'per day' in s.lower() or bool(re.search(r"retryDelay'?: ?'?(\d{3,})s", s))
+
+    @staticmethod
+    def _retry_delay(e: Exception, default: float) -> float:
+        m = re.search(r"retryDelay'?: ?'?(\d+(?:\.\d+)?)s", str(e))
+        return float(m.group(1)) + 1 if m else default
 
     def _next_model(self) -> bool:
         with self._lock:
@@ -124,7 +146,7 @@ class LLM:
                 if m not in tried:
                     tried.add(m)
                     self._tried = tried
-                    print(f'  [llm] model unavailable -> switching to {m}', file=sys.stderr, flush=True)
+                    print(f'  [llm] model unavailable or over quota -> switching to {m}', file=sys.stderr, flush=True)
                     self.model = m
                     return True
             self._tried = tried
@@ -137,6 +159,27 @@ class LLM:
                 self.disabled_reason = why
                 print(f'  [llm] Gemini disabled for the rest of this run ({why}). Continuing with the rule-based pipeline.',
                       file=sys.stderr, flush=True)
+
+    def audit_batch(self, texts: List[str], size: int = 25) -> Dict[str, bool]:
+        """Second opinion for many texts in few calls (free tiers allow only ~20 calls a day)."""
+        uniq = sorted(set(texts))
+        out: Dict[str, bool] = {}
+        for i in range(0, len(uniq), size):
+            chunk = uniq[i:i + size]
+            body = '\n'.join(f'[{j}] {t}' for j, t in enumerate(chunk))
+            res = self.json_call('classify_batch', load_prompt('classify_request.md') +
+                                 '\nSeveral messages are given, each prefixed by [index]. Return strict JSON: '
+                                 '{"results": [{"i": <index>, "deletion_requested": true|false}, ...]}', body)
+            for r in (res or {}).get('results', []) if isinstance(res, dict) else []:
+                try:
+                    if isinstance(r['deletion_requested'], bool):
+                        out[chunk[int(r['i'])]] = r['deletion_requested']
+                except (KeyError, ValueError, IndexError, TypeError):
+                    pass
+            print(f'  [llm] audited {min(i + size, len(uniq))}/{len(uniq)} request texts', file=sys.stderr, flush=True)
+            if not self.enabled:
+                break
+        return out
 
     def prefetch_classify(self, texts: List[str], workers: int = 6) -> None:
         """Warm the cache for many request texts in parallel, with a progress line."""

@@ -22,7 +22,8 @@ read automatically, never committed (`.gitignore`) and never packaged. Real envi
 ```bash
 python3 code/main.py                      # reads dataset/, writes output.csv (518 rows, sorted) + code/evaluation/usage_report.md
 python3 code/main.py --llm off            # fully deterministic, never calls a model
-python3 code/main.py --llm on             # adds the Gemini layer (key read from .env)
+python3 code/main.py --llm on             # Gemini for undecidable texts + screenshots (~20 calls; key read from .env)
+python3 code/main.py --llm on --llm-audit # + batched second opinion on all requests (~21 more calls)
 python3 code/evaluation/main.py           # metrics on the 32 public samples + 16 custom cases, regenerates evaluation_report.md
 python3 code/package.py                   # builds code.zip (no dataset, caches or secrets)
 ```
@@ -66,7 +67,7 @@ A clean run takes well under a minute and is deterministic (stable ordering, com
 ### Where the model is used
 
 Rules and SQL do the bulk of the work (cheap, reproducible). Gemini is used where judgement is needed:
-`prompts/classify_request.md` (second opinion on every request; adjudicates texts the rules cannot decide) and
+`prompts/classify_request.md` (adjudicates texts the rules cannot decide; with `--llm-audit`, a batched second opinion on every request) and
 `prompts/artifact_facts.md` (reads screenshots / PDFs: is a connector active, can a backup be restored, are direct
 identifiers visible). Responses are cached under `code/.cache/llm/`, calls and tokens are logged, and
 `evaluation/usage_report.md` is regenerated from that ledger on every full run.
@@ -81,3 +82,8 @@ it scores.
 
 See `evaluation/evaluation_report.md` section 6 (ambiguous interchangeable log rows; audit records that appear in no file;
 OCR-based screenshot reading without a model).
+
+### Free-tier quotas
+
+Free Gemini keys allow only ~20 requests/day per model. The default run therefore needs just ~20 calls; a daily-quota (429) error
+switches to the next fallback model, and when every model is exhausted the run continues rule-based. `GEMINI_MAX_CALLS=N` caps live calls.

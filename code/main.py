@@ -30,6 +30,7 @@ def main(argv=None) -> int:
     ap.add_argument('--debug', default=None, help='write per-case debug json here')
     ap.add_argument('--no-samples', action='store_true', help='do not co-process the public sample cases')
     ap.add_argument('--no-seed', action='store_true', help='co-process samples but ignore their published answers')
+    ap.add_argument('--llm-audit', action='store_true', help='also ask Gemini for a batched second opinion on every request (extra calls)')
     ap.add_argument('--llm', choices=['auto', 'on', 'off'], default='auto',
                     help='Gemini layer: auto = use it when GEMINI_API_KEY is set (default), off = fully deterministic')
     ap.add_argument('--usage-report', default=None, help='where to write the usage report (default: code/evaluation/usage_report.md for full runs)')
@@ -43,9 +44,12 @@ def main(argv=None) -> int:
     llm = LLM(enabled=args.llm != 'off')
     use_llm = llm.enabled and args.llm != 'off'
     world = World(args.dataset, llm.artifact_facts if use_llm else None)
+    audit = {}
     if use_llm:
-        print(f'Gemini enabled ({llm.model}); classifying {len(rows)} requests (cached after the first run)...', file=sys.stderr, flush=True)
-        llm.prefetch_classify([r['request_text'] for r in rows])
+        print(f'Gemini enabled ({llm.model}); used for undecidable request texts and screenshots'
+              + (' + a batched second opinion on every request' if args.llm_audit else ''), file=sys.stderr, flush=True)
+        if args.llm_audit:
+            audit = llm.audit_batch([r['request_text'] for r in rows])
     # The 32 public sample cases compete for the same activity rows as the evaluation cases, so they are
     # processed together (and their published answers tell us which resources they already own).
     wanted = {r['case_id'] for r in rows}
@@ -60,7 +64,7 @@ def main(argv=None) -> int:
                 for r in csv.DictReader(fh):
                     seeds[r['case_id']] = {s['resource_id'] for s in json.loads(r['steps_json'] or '[]')}
     cases = Auditor(world, llm.classify_request if use_llm else None,
-                    llm.classify_request if use_llm else None).run(rows + extra, seeds)
+                    (lambda t: audit.get(t)) if audit else None).run(rows + extra, seeds)
     cases = [c for c in cases if c.case_id in wanted]
     cases.sort(key=lambda c: c.case_id)
     with open(args.out, 'w', encoding='utf-8', newline='') as fh:
@@ -81,7 +85,7 @@ def main(argv=None) -> int:
         os.makedirs(os.path.dirname(report), exist_ok=True)
         with open(report, 'w', encoding='utf-8') as fh:
             fh.write(usage.render(llm.ledger, len(rows), llm.model, use_llm))
-    print(f'wrote {len(cases)} rows to {args.out}' + (f' (LLM calls: {len(llm.ledger)})' if use_llm else ''))
+    print(f'wrote {len(cases)} rows to {args.out}' + (f' (LLM calls: {len(llm.ledger)}, live {llm.live_calls}' + (f'; disabled: {llm.disabled_reason}' if llm.disabled_reason else '') + ')' if use_llm else ''))
     return 1 if problems else 0
 
 
