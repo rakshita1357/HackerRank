@@ -15,7 +15,7 @@ pip install -r code/requirements.txt                  # only needed for the opti
 No secrets live in the repository. Copy `.env.example` to `.env` (repo root or `code/`) and fill in your key - the file is
 read automatically, never committed (`.gitignore`) and never packaged. Real environment variables, if set, take priority.
 `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) enables the optional model layer; `GEMINI_MODEL` overrides the model
-(default `gemini-2.5-flash`).
+(default `gemini-3.8-flash`).
 
 ## Run
 

@@ -22,7 +22,9 @@ CODE_DIR = os.path.dirname(HERE)
 PROMPT_DIR = os.path.join(CODE_DIR, 'prompts')
 CACHE_DIR = os.path.join(CODE_DIR, '.cache', 'llm')
 
-DEFAULT_MODEL = 'gemini-2.5-flash'
+DEFAULT_MODEL = 'gemini-3.8-flash'
+# tried in order when the configured model answers 404 (retired / not available to this key)
+FALLBACK_MODELS = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite']
 logging.getLogger('google_genai').setLevel(logging.ERROR)
 logging.getLogger('google_genai.models').setLevel(logging.ERROR)
 
@@ -40,6 +42,8 @@ class LLM:
         self.model = model or os.environ.get('GEMINI_MODEL', DEFAULT_MODEL)
         self.cache_dir = cache_dir
         self.ledger: List[Dict[str, Any]] = []
+        self._lock = threading.RLock()
+        self.disabled_reason = ''
         self._client = None
         key = os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')
         self.enabled = bool(enabled and key)
@@ -84,7 +88,8 @@ class LLM:
             system_instruction=system, temperature=0.0, response_mime_type='application/json',
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))   # no tools: silences the AFC notice
         last_err: Optional[Exception] = None
-        for attempt in range(4):
+        attempt = 0
+        while attempt < 4 and self.enabled:
             try:
                 resp = self._client_obj().models.generate_content(model=self.model, contents=contents, config=cfg)
                 text = resp.text or ''
@@ -98,12 +103,40 @@ class LLM:
                 self.ledger.append({'purpose': purpose, 'model': self.model, 'cached': False,
                                     'input_tokens': tin, 'output_tokens': tout})
                 return result
-            except Exception as e:                     # network / quota / malformed JSON -> retry, then degrade
+            except Exception as e:
                 last_err = e
-                time.sleep(2 ** attempt)
+                code = getattr(e, 'code', None) or getattr(e, 'status_code', None)
+                if code == 404 and self._next_model():          # model retired / unavailable: switch and retry at once
+                    continue
+                if code in (400, 401, 403, 404):                # permanent: bad key, bad model, no access
+                    self._disable(f'{code} {str(e)[:160]}')
+                    break
+                attempt += 1                                    # 429 / 5xx / malformed JSON: back off and retry
+                time.sleep(min(2 ** attempt, 20))
         self.ledger.append({'purpose': purpose, 'model': self.model, 'cached': False, 'error': str(last_err)[:200],
                             'input_tokens': 0, 'output_tokens': 0})
         return None
+
+    def _next_model(self) -> bool:
+        with self._lock:
+            tried = getattr(self, '_tried', {self.model})
+            for m in FALLBACK_MODELS:
+                if m not in tried:
+                    tried.add(m)
+                    self._tried = tried
+                    print(f'  [llm] model unavailable -> switching to {m}', file=sys.stderr, flush=True)
+                    self.model = m
+                    return True
+            self._tried = tried
+        return False
+
+    def _disable(self, why: str) -> None:
+        with self._lock:
+            if self.enabled:
+                self.enabled = False
+                self.disabled_reason = why
+                print(f'  [llm] Gemini disabled for the rest of this run ({why}). Continuing with the rule-based pipeline.',
+                      file=sys.stderr, flush=True)
 
     def prefetch_classify(self, texts: List[str], workers: int = 6) -> None:
         """Warm the cache for many request texts in parallel, with a progress line."""
