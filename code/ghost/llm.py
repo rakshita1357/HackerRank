@@ -25,7 +25,7 @@ CACHE_DIR = os.path.join(CODE_DIR, '.cache', 'llm')
 
 DEFAULT_MODEL = 'gemini-3.8-flash'
 # tried in order when the configured model answers 404 (retired / not available to this key)
-FALLBACK_MODELS = ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-2.5-flash-lite']
+FALLBACK_MODELS = ['gemini-3.8-flash', 'gemini-flash-latest']   # then whatever the key can list (see _available_models)
 logging.getLogger('google_genai').setLevel(logging.ERROR)
 logging.getLogger('google_genai.models').setLevel(logging.ERROR)
 
@@ -149,8 +149,28 @@ class LLM:
                     print(f'  [llm] model unavailable or over quota -> switching to {m}', file=sys.stderr, flush=True)
                     self.model = m
                     return True
+            for m in self._available_models():
+                if m not in tried:
+                    tried.add(m)
+                    self._tried = tried
+                    print(f'  [llm] switching to listed model {m}', file=sys.stderr, flush=True)
+                    self.model = m
+                    return True
             self._tried = tried
         return False
+
+    def _available_models(self) -> List[str]:
+        """Flash-class models this key can actually call (newest names first)."""
+        try:
+            names = []
+            for m in self._client_obj().models.list():
+                acts = getattr(m, 'supported_actions', None) or []
+                n = (getattr(m, 'name', '') or '').replace('models/', '')
+                if 'flash' in n and 'generateContent' in acts and not any(x in n for x in ('image', 'tts', 'live', 'audio', 'thinking')):
+                    names.append(n)
+            return sorted(set(names), reverse=True)
+        except Exception:
+            return []
 
     def _disable(self, why: str) -> None:
         with self._lock:
